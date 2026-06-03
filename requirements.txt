@@ -1,0 +1,29 @@
+# Core
+python-dotenv>=1.0
+pyyaml>=6.0
+pandas>=2.2
+numpy>=1.26
+
+# Storage / cloud
+boto3>=1.34          # AWS S3
+duckdb>=1.0          # local SQL over CSV/Parquet (SQL skill without a server)
+
+# Big data
+pyspark>=3.5         # cleaning the full dataset
+
+# Modelling
+scikit-learn>=1.5
+xgboost>=2.0         # stronger triage model
+scipy>=1.13          # optimisation / statistics
+
+# Anomaly + live feed
+certstream>=1.12     # Certificate Transparency stream consumer
+tldextract>=5.1      # domain parsing for naming-pattern features
+
+# Dashboard
+streamlit>=1.36
+plotly>=5.22
+
+# Dev / quality
+pytest>=8.2
+ruff>=0.5            # lint + format

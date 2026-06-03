@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Environments and secrets
+.env
+*.local
+
+# Data (never commit raw or processed datasets)
+data/raw/*
+data/interim/*
+data/processed/*
+!data/**/.gitkeep
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Spark / Databricks
+spark-warehouse/
+metastore_db/
+derby.log
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+
+# Model artefacts and logs
+models/*.pkl
+models/*.joblib
+*.log

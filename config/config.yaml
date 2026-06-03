@@ -1,0 +1,54 @@
+# Sift configuration. Values here are non-secret defaults.
+# Secrets live in .env (see .env.example).
+
+project:
+  name: sift
+  random_seed: 42
+
+# Cloud-first: the 13GB raw dataset lives in S3 and is processed on Databricks.
+# It never lands on the laptop. Secrets (bucket, keys, Databricks token) are in .env.
+storage:
+  layout:
+    raw_prefix: raw/             # raw CSVs, written by the Databricks ingest notebook
+    processed_prefix: processed/ # cleaned Parquet, written by the Spark cleaning
+    sample_prefix: sample/       # small extracts pulled back for the local dashboard
+  local_sample_rows: 200000      # max rows in the local sample used by the dashboard
+
+data:
+  # Google Transparency Report copyright removals.
+  # Downloaded + unzipped on the Databricks cluster and written to s3://<bucket>/raw/.
+  # See notebooks/00_ingest_databricks.py and BUILD_GUIDE.md Phase 1.
+  google:
+    requests_file: requests.csv
+    domains_file: domains.csv
+    join_key: request_id
+  certstream:
+    # Tokens that hint at piracy in a new domain name. Refined from the data in Phase 5.
+    suspicious_tokens: [stream, live, hd, sport, sports, futbol, foot, match, tv, watch, free]
+    suspicious_tlds: [xyz, ru, su, top, cc, sbs, club, online, stream]
+
+label:
+  # removal_rate = urls_removed / urls_specified
+  action_threshold: 0.5   # at/above -> actioned (positive class)
+
+split:
+  # Temporal holdout: train strictly before cutoff, evaluate strictly after.
+  cutoff_date: "2024-09-01"
+
+model:
+  baseline: logistic_regression
+  challenger: xgboost
+  calibrate: true
+
+optimisation:
+  # Budget-constrained selection (knapsack-style).
+  time_budget_minutes: 60
+  cost_per_candidate_minutes: 3
+  importance_weight_field: copyright_owner   # weight high-value owners more
+
+evaluation:
+  precision_at_k: [10, 25, 50]
+
+dashboard:
+  title: "Sift — Takedown Triage and Early Warning"
+  replay_step_seconds: 1
