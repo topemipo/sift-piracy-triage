@@ -28,7 +28,9 @@ def add_request_features(df: pd.DataFrame) -> pd.DataFrame:
     raise NotImplementedError
 
 
-def add_domain_features(df: pd.DataFrame, suspicious_tokens=DEFAULT_SUSPICIOUS_TOKENS) -> pd.DataFrame:
+def add_domain_features(
+    df: pd.DataFrame, suspicious_tokens=DEFAULT_SUSPICIOUS_TOKENS
+) -> pd.DataFrame:
     """Domain-level features.
 
     TODO:
