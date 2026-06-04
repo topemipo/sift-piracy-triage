@@ -36,3 +36,6 @@ derby.log
 models/*.pkl
 models/*.joblib
 *.log
+
+# Personal running notes
+docs/

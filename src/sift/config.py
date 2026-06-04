@@ -39,12 +39,44 @@ class Settings:
         return node
 
 
+def _as_bool(value: str | None, default: bool) -> bool:
+    """Parse a truthy string from the environment."""
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def load_settings() -> Settings:
     """Load and merge config.yaml + .env into a Settings object.
 
-    TODO (PRD FR-1.2): implement.
-      - load_dotenv()
-      - read CONFIG_PATH yaml
-      - resolve USE_S3, S3_BUCKET, LOCAL_DATA_DIR, RANDOM_SEED from env with sane defaults
+    Non-secret defaults come from ``config/config.yaml``; secrets and
+    environment-specific overrides come from ``.env`` (loaded into the process
+    environment). This is the single place allowed to read environment
+    variables, so the rest of the codebase depends only on the returned
+    ``Settings`` object. (PRD FR-1.2)
     """
-    raise NotImplementedError
+    load_dotenv(PROJECT_ROOT / ".env")
+
+    with CONFIG_PATH.open("r", encoding="utf-8") as handle:
+        raw: dict[str, Any] = yaml.safe_load(handle) or {}
+
+    use_s3 = _as_bool(os.environ.get("USE_S3"), default=True)
+    s3_bucket = os.environ.get("S3_BUCKET") or None
+
+    local_data_dir_env = os.environ.get("LOCAL_DATA_DIR")
+    local_data_dir = (
+        Path(local_data_dir_env).expanduser()
+        if local_data_dir_env
+        else PROJECT_ROOT / "data"
+    )
+
+    seed_default = raw.get("project", {}).get("random_seed", 42)
+    random_seed = int(os.environ.get("RANDOM_SEED", seed_default))
+
+    return Settings(
+        raw=raw,
+        use_s3=use_s3,
+        s3_bucket=s3_bucket,
+        local_data_dir=local_data_dir,
+        random_seed=random_seed,
+    )
