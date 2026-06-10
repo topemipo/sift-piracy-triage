@@ -296,8 +296,9 @@ def join_and_persist(
 
     The joined frame is at domain grain (one row per domain per request) with
     request-level context attached, which is the analysis-ready table both the
-    triage model and the pirate-naming patterns build on. Request-level count
-    columns are prefixed ``request_`` to avoid colliding with the domain counts.
+    triage model and the pirate-naming patterns build on. Outcome columns are
+    explicitly prefixed by grain (``domain_`` or ``request_``) so the specific
+    domain outcome cannot be confused with the whole complaint outcome.
     """
     from pyspark.sql import functions as F
 
@@ -310,10 +311,25 @@ def join_and_persist(
         "copyright_owner",
         F.col("urls_specified").alias("request_urls_specified"),
         F.col("urls_removed").alias("request_urls_removed"),
+        F.col("urls_no_action").alias("request_urls_no_action"),
+        F.col("urls_not_in_index").alias("request_urls_not_in_index"),
+        F.col("urls_pending").alias("request_urls_pending"),
         F.col("removal_rate").alias("request_removal_rate"),
         F.col("from_abuser").alias("request_from_abuser"),
     )
 
-    joined = domains_df.join(request_attrs, on="request_id", how="left")
+    domain_attrs = domains_df.select(
+        "request_id",
+        "domain",
+        F.col("urls_specified").alias("domain_urls_specified"),
+        F.col("urls_removed").alias("domain_urls_removed"),
+        F.col("urls_no_action").alias("domain_urls_no_action"),
+        F.col("urls_not_in_index").alias("domain_urls_not_in_index"),
+        F.col("urls_pending").alias("domain_urls_pending"),
+        F.col("removal_rate").alias("domain_removal_rate"),
+        F.col("from_abuser").alias("domain_from_abuser"),
+    )
+
+    joined = domain_attrs.join(request_attrs, on="request_id", how="left")
     joined.write.mode("overwrite").parquet(out_uri)
     return out_uri

@@ -100,3 +100,11 @@ Sift uses public proxy data, not Friend MTS's internal systems, and does not do
 watermarking or computer vision. The transferable asset is the method: monitoring
 data in, prioritised action out, evaluated honestly. Limitations are set out in full
 in Section 13 of the PRD.
+
+
+## Shell Commands Used
+
+To test the functions in the build_features module:
+```bash
+PYTHONPATH=src XDG_CACHE_HOME=/private/tmp .venv/bin/python -m pytest tests/test_features.py
+```

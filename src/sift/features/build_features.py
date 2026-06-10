@@ -52,7 +52,11 @@ _NON_ALPHA_RE = re.compile(r"[^a-z]")
 # ---------------------------------------------------------------------------
 
 
-def add_request_features(df: pd.DataFrame) -> pd.DataFrame:
+def add_request_features(
+    df: pd.DataFrame,
+    input_prefix: str = "",
+    output_prefix: str = "",
+) -> pd.DataFrame:
     """Add request-level features; return augmented DataFrame.
 
     Features added
@@ -82,25 +86,34 @@ def add_request_features(df: pd.DataFrame) -> pd.DataFrame:
         df["date"] = pd.to_datetime(df["date"], utc=True).dt.tz_localize(None)
 
     # --- Simple numeric features ---
-    df["urls_log1p"] = np.log1p(df["urls_specified"].clip(lower=0))
-    specified = df["urls_specified"].replace(0, np.nan)
-    df["not_in_index_ratio"] = (df["urls_not_in_index"] / specified).fillna(0.0)
-    df["no_action_ratio"] = (df["urls_no_action"] / specified).fillna(0.0)
+    urls_specified_col = f"{input_prefix}urls_specified"
+    urls_not_in_index_col = f"{input_prefix}urls_not_in_index"
+    urls_no_action_col = f"{input_prefix}urls_no_action"
+    removal_rate_col = f"{input_prefix}removal_rate"
+
+    df[f"{output_prefix}urls_log1p"] = np.log1p(df[urls_specified_col].clip(lower=0))
+    specified = df[urls_specified_col].replace(0, np.nan)
+    df[f"{output_prefix}not_in_index_ratio"] = (
+        df[urls_not_in_index_col] / specified
+    ).fillna(0.0)
+    df[f"{output_prefix}no_action_ratio"] = (df[urls_no_action_col] / specified).fillna(0.0)
 
     # --- Calendar features ---
-    df["dow"] = df["date"].dt.dayofweek.astype("int8")
-    df["month"] = df["date"].dt.month.astype("int8")
+    df[f"{output_prefix}dow"] = df["date"].dt.dayofweek.astype("int8")
+    df[f"{output_prefix}month"] = df["date"].dt.month.astype("int8")
 
     # --- Leakage-safe historical hit rates ---
     df = _add_historical_hit_rate(
         df,
         group_col="reporting_org_id",
-        new_col="org_historical_hit_rate",
+        target_col=removal_rate_col,
+        new_col=f"{output_prefix}org_historical_hit_rate",
     )
     df = _add_historical_hit_rate(
         df,
         group_col="copyright_owner_id",
-        new_col="owner_historical_hit_rate",
+        target_col=removal_rate_col,
+        new_col=f"{output_prefix}owner_historical_hit_rate",
     )
 
     return df
@@ -109,6 +122,7 @@ def add_request_features(df: pd.DataFrame) -> pd.DataFrame:
 def _add_historical_hit_rate(
     df: pd.DataFrame,
     group_col: str,
+    target_col: str,
     new_col: str,
 ) -> pd.DataFrame:
     """Add a leakage-safe expanding mean of ``removal_rate`` grouped by ``group_col``.
@@ -128,31 +142,30 @@ def _add_historical_hit_rate(
     then subtract the current day's contribution before dividing.  This is
     O(n log n) and avoids any lookahead.
     """
-    # Work on a sorted copy; keep the original index to merge back.
-    work = df[["date", group_col, "removal_rate"]].copy()
-    work = work.sort_values("date", kind="stable")
+    work = df[["date", group_col, target_col]].copy()
 
-    # Per-group cumulative sum and count (includes current row).
-    work["_cum_sum"] = work.groupby(group_col)["removal_rate"].cumsum()
-    work["_cum_cnt"] = work.groupby(group_col).cumcount() + 1
-
-    # Per-group, per-date totals: sum and count of ALL rows on the same date.
-    day_totals = (
-        work.groupby([group_col, "date"])["removal_rate"]
+    daily = (
+        work.groupby([group_col, "date"], dropna=False)[target_col]
         .agg(day_sum="sum", day_cnt="count")
         .reset_index()
+        .sort_values([group_col, "date"], kind="stable")
     )
-    work = work.merge(day_totals, on=[group_col, "date"], how="left")
+    daily["_prior_sum"] = daily.groupby(group_col, dropna=False)["day_sum"].cumsum() - daily[
+        "day_sum"
+    ]
+    daily["_prior_cnt"] = daily.groupby(group_col, dropna=False)["day_cnt"].cumsum() - daily[
+        "day_cnt"
+    ]
+    daily[new_col] = np.where(
+        daily["_prior_cnt"] > 0,
+        daily["_prior_sum"] / daily["_prior_cnt"],
+        np.nan,
+    )
 
-    # Strictly-prior = cumulative up to and including today, minus today's rows.
-    prior_sum = work["_cum_sum"] - work["day_sum"]
-    prior_cnt = work["_cum_cnt"] - work["day_cnt"]
+    work = work.merge(daily[[group_col, "date", new_col]], on=[group_col, "date"], how="left")
 
-    work[new_col] = np.where(prior_cnt > 0, prior_sum / prior_cnt, np.nan)
-
-    # Merge back on original index.
     df = df.copy()
-    df[new_col] = work[new_col].values
+    df[new_col] = work[new_col].to_numpy()
     return df
 
 
@@ -164,6 +177,8 @@ def _add_historical_hit_rate(
 def add_domain_features(
     df: pd.DataFrame,
     suspicious_tokens: tuple[str, ...] = DEFAULT_SUSPICIOUS_TOKENS,
+    input_prefix: str = "",
+    output_prefix: str = "",
 ) -> pd.DataFrame:
     """Add domain-level features; return augmented DataFrame.
 
@@ -184,6 +199,7 @@ def add_domain_features(
     Note: ``date`` must be present (join from requests before calling this).
     """
     df = df.copy()
+    removal_rate_col = f"{input_prefix}removal_rate"
 
     if not pd.api.types.is_datetime64_any_dtype(df["date"]):
         df["date"] = pd.to_datetime(df["date"], utc=True).dt.tz_localize(None)
@@ -192,30 +208,31 @@ def add_domain_features(
 
     # --- Naming-pattern features ---
     token_pattern = "|".join(re.escape(t) for t in suspicious_tokens)
-    df["domain_has_suspicious_token"] = domain_lower.str.contains(
+    df[f"{output_prefix}domain_has_suspicious_token"] = domain_lower.str.contains(
         token_pattern, regex=True, na=False
     ).astype("int8")
-    df["suspicious_token_count"] = domain_lower.apply(
+    df[f"{output_prefix}suspicious_token_count"] = domain_lower.apply(
         lambda d: sum(1 for t in suspicious_tokens if t in d)
     ).astype("int8")
 
     # --- TLD features ---
     parsed = domain_lower.apply(lambda d: tldextract.extract(d))
-    df["tld"] = parsed.apply(lambda e: e.suffix or "")
-    df["tld_is_risky"] = df["tld"].isin(RISKY_TLDS).astype("int8")
+    df[f"{output_prefix}tld"] = parsed.apply(lambda e: e.suffix or "")
+    df[f"{output_prefix}tld_is_risky"] = df[f"{output_prefix}tld"].isin(RISKY_TLDS).astype("int8")
 
     # --- Structural features ---
-    df["domain_length"] = domain_lower.str.len().astype("int16")
-    df["digit_ratio"] = domain_lower.apply(
+    df[f"{output_prefix}domain_length"] = domain_lower.str.len().astype("int16")
+    df[f"{output_prefix}digit_ratio"] = domain_lower.apply(
         lambda d: (sum(c.isdigit() for c in d) / len(d)) if d else 0.0
     )
-    df["hyphen_count"] = domain_lower.str.count("-").astype("int8")
+    df[f"{output_prefix}hyphen_count"] = domain_lower.str.count("-").astype("int8")
 
     # --- Leakage-safe domain targeting frequency ---
     df = _add_historical_hit_rate(
         df,
         group_col="domain",
-        new_col="domain_historical_hit_rate",
+        target_col=removal_rate_col,
+        new_col=f"{output_prefix}domain_historical_hit_rate",
     )
 
     return df
@@ -226,12 +243,17 @@ def add_domain_features(
 # ---------------------------------------------------------------------------
 
 
-def make_label(df: pd.DataFrame, threshold: float) -> pd.DataFrame:
+def make_label(
+    df: pd.DataFrame,
+    threshold: float,
+    target_col: str = "removal_rate",
+    label_col: str = "action",
+) -> pd.DataFrame:
     """Add binary ``action`` label: 1 if ``removal_rate >= threshold`` else 0.
 
     Rows where ``removal_rate`` is null (no URLs were specified) are labelled
     0 (treat as non-actionable rather than dropping them).
     """
     df = df.copy()
-    df["action"] = (df["removal_rate"].fillna(0.0) >= threshold).astype("int8")
+    df[label_col] = (df[target_col].fillna(0.0) >= threshold).astype("int8")
     return df

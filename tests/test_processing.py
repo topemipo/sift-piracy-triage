@@ -115,3 +115,73 @@ def test_clean_requests_derives_specified_and_rate(spark, tmp_path) -> None:
     assert out[2]["from_abuser"] is True
     # Owner name canonicalised to the modal spelling across both rows.
     assert out[1]["copyright_owner"] == out[2]["copyright_owner"]
+
+
+def test_join_and_persist_prefixes_request_and_domain_outcomes(spark, tmp_path) -> None:
+    """Joined table should make request-grain vs domain-grain outcomes explicit."""
+    from sift.processing.clean_spark import join_and_persist
+
+    requests_df = spark.createDataFrame(
+        [
+            {
+                "request_id": 1,
+                "date": "2024-08-17",
+                "reporting_org_id": 10,
+                "reporting_org": "Org",
+                "copyright_owner_id": 20,
+                "copyright_owner": "Owner",
+                "urls_specified": 100,
+                "urls_removed": 80,
+                "urls_no_action": 10,
+                "urls_not_in_index": 5,
+                "urls_pending": 5,
+                "removal_rate": 0.8,
+                "from_abuser": False,
+                "lumen_url": "http://l/1",
+            }
+        ]
+    )
+    domains_df = spark.createDataFrame(
+        [
+            {
+                "request_id": 1,
+                "domain": "example.com",
+                "urls_specified": 10,
+                "urls_removed": 4,
+                "urls_no_action": 3,
+                "urls_not_in_index": 2,
+                "urls_pending": 1,
+                "removal_rate": 0.4,
+                "from_abuser": True,
+            }
+        ]
+    )
+
+    out_uri = str(tmp_path / "joined")
+    join_and_persist(requests_df, domains_df, out_uri)
+    joined = spark.read.parquet(out_uri)
+
+    expected_columns = {
+        "domain_urls_specified",
+        "domain_urls_removed",
+        "domain_urls_no_action",
+        "domain_urls_not_in_index",
+        "domain_urls_pending",
+        "domain_removal_rate",
+        "domain_from_abuser",
+        "request_urls_specified",
+        "request_urls_removed",
+        "request_urls_no_action",
+        "request_urls_not_in_index",
+        "request_urls_pending",
+        "request_removal_rate",
+        "request_from_abuser",
+    }
+    assert expected_columns.issubset(set(joined.columns))
+    assert "urls_specified" not in joined.columns
+    assert "removal_rate" not in joined.columns
+    row = joined.first()
+    assert row["domain_urls_specified"] == 10
+    assert row["request_urls_specified"] == 100
+    assert row["domain_removal_rate"] == 0.4
+    assert row["request_removal_rate"] == 0.8

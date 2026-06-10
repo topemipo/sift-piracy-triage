@@ -77,18 +77,29 @@ derive `urls_specified` as their sum and `removal_rate` from it.
 
 ### joined (analysis-ready, one row per domain per request)
 
-The domains table left-joined to request-level context. Domain-level count
-columns keep their names; request-level counts are prefixed `request_` to avoid
-collision.
+The domains table left-joined to request-level context. Outcome columns are
+prefixed by grain (`domain_` or `request_`) so the domain-specific outcome is
+not confused with the whole-request outcome.
 
 | Column | Type | Description |
 |---|---|---|
-| request_id, domain, urls_specified, urls_removed, urls_no_action, urls_not_in_index, urls_pending, removal_rate, from_abuser | — | As in `domains`. |
+| request_id | long | Unique request identifier. |
+| domain | string | Targeted domain. |
+| domain_urls_specified | int | Domain-level URLs specified. |
+| domain_urls_removed | int | Domain-level URLs removed. |
+| domain_urls_no_action | int | Domain-level URLs not actioned. |
+| domain_urls_not_in_index | int | Domain-level URLs not in Google's index. |
+| domain_urls_pending | int | Domain-level URLs pending review. |
+| domain_removal_rate | float | Domain-level removal rate. |
+| domain_from_abuser | bool | Domain-level abuser flag. |
 | date | date | Request date (for the temporal split). |
 | reporting_org_id, reporting_org | long, string | Reporting organisation. |
 | copyright_owner_id, copyright_owner | long, string | Copyright owner. |
 | request_urls_specified | int | Request-level URLs specified. |
 | request_urls_removed | int | Request-level URLs removed. |
+| request_urls_no_action | int | Request-level URLs not actioned. |
+| request_urls_not_in_index | int | Request-level URLs not in Google's index. |
+| request_urls_pending | int | Request-level URLs pending review. |
 | request_removal_rate | float | Request-level removal rate. |
 | request_from_abuser | bool | Request-level abuser flag. |
 

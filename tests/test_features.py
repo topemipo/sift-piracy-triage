@@ -175,6 +175,21 @@ def test_same_day_rows_excluded_from_each_others_history():
     assert pd.isna(out.loc[2, "org_historical_hit_rate"])
 
 
+def test_historical_hit_rate_preserves_input_row_order():
+    """Historical features must align to the original rows after date sorting."""
+    df = _make_requests(
+        [
+            {"request_id": 3, "date": "2024-01-03", "reporting_org_id": 1, "removal_rate": 0.5},
+            {"request_id": 1, "date": "2024-01-01", "reporting_org_id": 1, "removal_rate": 1.0},
+            {"request_id": 2, "date": "2024-01-02", "reporting_org_id": 1, "removal_rate": 0.0},
+        ]
+    )
+    out = add_request_features(df).set_index("request_id")
+    assert pd.isna(out.loc[1, "org_historical_hit_rate"])
+    assert out.loc[2, "org_historical_hit_rate"] == pytest.approx(1.0)
+    assert out.loc[3, "org_historical_hit_rate"] == pytest.approx(0.5)
+
+
 def test_domain_historical_hit_rate_leakage_safe():
     """domain_historical_hit_rate uses only strictly-prior domain appearances."""
     df = _make_joined(
@@ -238,6 +253,26 @@ def test_add_request_features_does_not_mutate():
     assert set(df.columns) == original_cols
 
 
+def test_add_request_features_accepts_prefixed_joined_columns():
+    df = _make_requests([{}]).rename(
+        columns={
+            "urls_specified": "request_urls_specified",
+            "urls_no_action": "request_urls_no_action",
+            "urls_not_in_index": "request_urls_not_in_index",
+            "removal_rate": "request_removal_rate",
+        }
+    )
+    out = add_request_features(df, input_prefix="request_", output_prefix="request_")
+    for col in (
+        "request_urls_log1p",
+        "request_not_in_index_ratio",
+        "request_no_action_ratio",
+        "request_org_historical_hit_rate",
+        "request_owner_historical_hit_rate",
+    ):
+        assert col in out.columns, f"missing column: {col}"
+
+
 # ---------------------------------------------------------------------------
 # Domain features: basic shape and value checks
 # ---------------------------------------------------------------------------
@@ -287,3 +322,14 @@ def test_add_domain_features_does_not_mutate():
     original_cols = set(df.columns)
     _ = add_domain_features(df)
     assert set(df.columns) == original_cols
+
+
+def test_add_domain_features_accepts_prefixed_joined_columns():
+    df = _make_joined([{"domain": "live-sport-stream.xyz"}]).rename(
+        columns={"removal_rate": "domain_removal_rate"}
+    )
+    out = add_domain_features(df, input_prefix="domain_")
+    assert out["domain_has_suspicious_token"].iloc[0] == 1
+    assert out["suspicious_token_count"].iloc[0] >= 3
+    assert out["tld"].iloc[0] == "xyz"
+    assert "domain_historical_hit_rate" in out.columns
